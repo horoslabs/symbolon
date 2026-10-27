@@ -1,0 +1,4 @@
+/symbolon
+/out/
+*.json
+!testdata/*.json
