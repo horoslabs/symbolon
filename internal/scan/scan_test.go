@@ -37,7 +37,7 @@ func selfSigned(t *testing.T, notAfter time.Time) tls.Certificate {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
 
-// serve levanta un servidor TLS local y devuelve su dirección.
+// serve starts a local TLS server and returns its address.
 func serve(t *testing.T, cfg *tls.Config) string {
 	t.Helper()
 	ln, err := tls.Listen("tcp", "127.0.0.1:0", cfg)
@@ -101,47 +101,47 @@ func TestScanLegacyServer(t *testing.T) {
 	}
 	for v, ok := range want {
 		if got := supported(r, v); got != ok {
-			t.Errorf("%s soportado = %v, quería %v", probe.VersionName(v), got, ok)
+			t.Errorf("%s supported = %v, wanted %v", probe.VersionName(v), got, ok)
 		}
 	}
 
 	tls12 := suiteIDs(proto(r, probe.VersionTLS12))
 	for _, id := range []uint16{0xC02F, 0xC013, 0xC011, 0x000A} {
 		if !tls12[id] {
-			t.Errorf("TLS 1.2: falta la suite 0x%04x (aceptadas: %v)", id, tls12)
+			t.Errorf("TLS 1.2: missing suite 0x%04x (accepted: %v)", id, tls12)
 		}
 	}
 	if len(tls12) != 4 {
-		t.Errorf("TLS 1.2: %d suites, quería 4: %v", len(tls12), tls12)
+		t.Errorf("TLS 1.2: %d suites, wanted 4: %v", len(tls12), tls12)
 	}
-	// En TLS 1.0 no existen suites AEAD.
+	// TLS 1.0 has no AEAD suites.
 	tls10 := suiteIDs(proto(r, probe.VersionTLS10))
 	if tls10[0xC02F] || len(tls10) != 3 {
-		t.Errorf("TLS 1.0: suites inesperadas %v", tls10)
+		t.Errorf("TLS 1.0: unexpected suites %v", tls10)
 	}
 
 	for _, f := range []struct{ sev, title string }{
-		{High, "Suites RC4 o DES aceptadas"},
-		{Medium, "3DES aceptado (SWEET32)"},
-		{Medium, "TLS 1.0 habilitado"},
-		{Medium, "TLS 1.1 habilitado"},
-		{High, "Certificado autofirmado"},
-		{Info, "TLS 1.3 no soportado"},
+		{High, "RC4 or DES suites accepted"},
+		{Medium, "3DES accepted (SWEET32)"},
+		{Medium, "TLS 1.0 enabled"},
+		{Medium, "TLS 1.1 enabled"},
+		{High, "Self-signed certificate"},
+		{Info, "TLS 1.3 not supported"},
 	} {
 		if !hasFinding(r, f.sev, f.title) {
-			t.Errorf("falta el hallazgo [%s] %s", f.sev, f.title)
+			t.Errorf("missing finding [%s] %s", f.sev, f.title)
 		}
 	}
-	if hasFinding(r, High, "SSLv3 habilitado") {
-		t.Error("SSLv3 no debería detectarse")
+	if hasFinding(r, High, "SSLv3 enabled") {
+		t.Error("SSLv3 should not be detected")
 	}
 	if r.Cert == nil || r.Cert.KeyBits != 2048 || !r.Cert.HostnameOK {
-		t.Errorf("certificado inesperado: %+v", r.Cert)
+		t.Errorf("unexpected certificate: %+v", r.Cert)
 	}
-	// Los hallazgos van ordenados de más a menos grave.
+	// Findings are sorted from most to least severe.
 	for i := 1; i < len(r.Findings); i++ {
 		if Rank(r.Findings[i-1].Severity) > Rank(r.Findings[i].Severity) {
-			t.Errorf("hallazgos desordenados en %d: %v", i, r.Findings)
+			t.Errorf("findings out of order at %d: %v", i, r.Findings)
 		}
 	}
 }
@@ -155,21 +155,21 @@ func TestScanModernServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if supported(r, probe.VersionTLS10) || supported(r, probe.VersionTLS11) || supported(r, probe.VersionSSL30) {
-		t.Error("el servidor moderno no debería aceptar protocolos antiguos")
+		t.Error("the modern server should not accept old protocols")
 	}
 	if !supported(r, probe.VersionTLS12) || !supported(r, probe.VersionTLS13) {
-		t.Fatalf("faltan TLS 1.2/1.3: %+v", r.Protocols)
+		t.Fatalf("missing TLS 1.2/1.3: %+v", r.Protocols)
 	}
 	if n := len(proto(r, probe.VersionTLS13).Suites); n != 3 {
-		t.Errorf("TLS 1.3: %d suites, quería 3", n)
+		t.Errorf("TLS 1.3: %d suites, wanted 3", n)
 	}
 	for _, f := range r.Findings {
 		if f.Severity == Critical {
-			t.Errorf("hallazgo crítico inesperado: %+v", f)
+			t.Errorf("unexpected critical finding: %+v", f)
 		}
 	}
-	if hasFinding(r, Medium, "TLS 1.0 habilitado") || hasFinding(r, Info, "TLS 1.3 no soportado") {
-		t.Error("hallazgos de protocolo incorrectos para un servidor moderno")
+	if hasFinding(r, Medium, "TLS 1.0 enabled") || hasFinding(r, Info, "TLS 1.3 not supported") {
+		t.Error("incorrect protocol findings for a modern server")
 	}
 }
 
@@ -178,16 +178,16 @@ func TestScanExpiredAndHostname(t *testing.T) {
 	addr := serve(t, &tls.Config{Certificates: []tls.Certificate{cert}})
 	_, port, _ := net.SplitHostPort(addr)
 
-	// "localhost" no está en el SAN (solo 127.0.0.1).
+	// "localhost" is not in the SAN (only 127.0.0.1).
 	r, err := Scan("localhost:"+port, Options{Timeout: 3 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasFinding(r, High, "Certificado caducado") {
-		t.Error("falta el hallazgo de certificado caducado")
+	if !hasFinding(r, High, "Certificate expired") {
+		t.Error("missing expired certificate finding")
 	}
-	if !hasFinding(r, High, "El certificado no coincide con el nombre") {
-		t.Error("falta el hallazgo de nombre no coincidente")
+	if !hasFinding(r, High, "Certificate does not match the hostname") {
+		t.Error("missing mismatched name finding")
 	}
 }
 
@@ -200,7 +200,7 @@ func TestSSLv3AlertIsHandled(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.Supported || res.Alert != 70 { // 70 = protocol_version
-		t.Errorf("esperaba alerta protocol_version, obtuve %+v", res)
+		t.Errorf("expected protocol_version alert, got %+v", res)
 	}
 }
 
@@ -225,7 +225,7 @@ func TestScanNoTLS(t *testing.T) {
 	}
 	for _, p := range r.Protocols {
 		if p.Supported {
-			t.Errorf("%s no debería estar soportado en un servicio que no habla TLS", p.Name)
+			t.Errorf("%s should not be supported on a non-TLS service", p.Name)
 		}
 	}
 }
@@ -235,7 +235,7 @@ func TestScanClosedPort(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 	if _, err := Scan("127.0.0.1:"+strconv.Itoa(port), Options{Timeout: time.Second}); err == nil {
-		t.Error("un puerto cerrado debería dar error")
+		t.Error("a closed port should return an error")
 	}
 }
 

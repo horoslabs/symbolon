@@ -13,7 +13,7 @@ func TestParseFlightDHE(t *testing.T) {
 	sh = append(sh, make([]byte, 32)...)
 	sh = append(sh, 0, 0x00, 0x33, 0)
 
-	// ServerKeyExchange con un primo de 1024 bits (primer byte 0xFF).
+	// ServerKeyExchange with a 1024-bit prime (first byte 0xFF).
 	p := make([]byte, 128)
 	p[0] = 0xFF
 	ske := append([]byte{0x00, 0x80}, p...)
@@ -25,14 +25,14 @@ func TestParseFlightDHE(t *testing.T) {
 
 	var res Result
 	if parseFlight(hs, &res) {
-		t.Fatal("sin ServerHelloDone no debería terminar")
+		t.Fatal("without ServerHelloDone it should not finish")
 	}
 	hs = append(hs, hsMsg(14, nil)...)
 	if !parseFlight(hs, &res) {
-		t.Fatal("con ServerHelloDone debería terminar")
+		t.Fatal("with ServerHelloDone it should finish")
 	}
 	if !res.Supported || res.Version != VersionTLS12 || res.Suite != 0x0033 || res.DHBits != 1024 {
-		t.Errorf("resultado inesperado: %+v", res)
+		t.Errorf("unexpected result: %+v", res)
 	}
 }
 
@@ -42,7 +42,7 @@ func TestParseCertificates(t *testing.T) {
 	msg := append([]byte{0, 0, byte(len(list))}, list...)
 	got := parseCertificates(msg)
 	if len(got) != 2 || string(got[0]) != string(c1) || string(got[1]) != string(c2) {
-		t.Errorf("certificados: %v", got)
+		t.Errorf("certificates: %v", got)
 	}
 }
 
@@ -57,7 +57,7 @@ func TestBitLen(t *testing.T) {
 		{nil, 0},
 	} {
 		if got := bitLen(c.in); got != c.want {
-			t.Errorf("bitLen(%v) = %d, quería %d", c.in, got, c.want)
+			t.Errorf("bitLen(%v) = %d, wanted %d", c.in, got, c.want)
 		}
 	}
 }
@@ -66,15 +66,15 @@ func TestSSLv3HelloHasNoExtensions(t *testing.T) {
 	p := &Prober{SNI: "example.com"}
 	h := p.LegacyHello(VersionSSL30, LegacySuites[:2])
 	if h[0] != 0x16 || h[1] != 0x03 || h[2] != 0x00 {
-		t.Errorf("cabecera de registro SSLv3 incorrecta: % x", h[:5])
+		t.Errorf("incorrect SSLv3 record header: % x", h[:5])
 	}
-	// 5 (registro) + 4 (handshake) + 2 + 32 + 1 + 2 + 4 + 2 = 52, sin extensiones
+	// 5 (record) + 4 (handshake) + 2 + 32 + 1 + 2 + 4 + 2 = 52, no extensions
 	if len(h) != 52 {
-		t.Errorf("longitud = %d, quería 52 (sin extensiones)", len(h))
+		t.Errorf("length = %d, wanted 52 (no extensions)", len(h))
 	}
 	tls12 := p.LegacyHello(VersionTLS12, LegacySuites[:2])
 	if len(tls12) <= len(h) {
-		t.Error("el hello de TLS 1.2 debería llevar extensiones")
+		t.Error("the TLS 1.2 hello should carry extensions")
 	}
 }
 
@@ -84,7 +84,7 @@ func TestGrades(t *testing.T) {
 		0x000A: Weak, 0x0005: Insecure, 0x0001: Insecure, 0x0034: Insecure, 0x0003: Insecure,
 	} {
 		if got := Lookup(id).Grade(); got != want {
-			t.Errorf("0x%04x: %s, quería %s", id, got, want)
+			t.Errorf("0x%04x: %s, wanted %s", id, got, want)
 		}
 	}
 }

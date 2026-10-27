@@ -1,4 +1,4 @@
-// Package certs analiza la cadena de certificados que presenta un servidor.
+// Package certs analyzes the certificate chain presented by a server.
 package certs
 
 import (
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Info resume el certificado hoja y el estado de la cadena.
+// Info summarizes the leaf certificate and the chain's status.
 type Info struct {
 	Subject    string    `json:"subject"`
 	Issuer     string    `json:"issuer"`
@@ -32,11 +32,11 @@ type Info struct {
 	Expired     bool   `json:"expired"`
 }
 
-// Analyze parsea la cadena DER y la valida contra las raíces del sistema.
-// host es el nombre (o IP) contra el que se comprueba el certificado.
+// Analyze parses the DER chain and validates it against the system roots.
+// host is the name (or IP) the certificate is checked against.
 func Analyze(der [][]byte, host string, now time.Time) (*Info, error) {
 	if len(der) == 0 {
-		return nil, errors.New("el servidor no envió certificados")
+		return nil, errors.New("the server sent no certificates")
 	}
 	var chain []*x509.Certificate
 	for _, d := range der {
@@ -72,7 +72,7 @@ func Analyze(der [][]byte, host string, now time.Time) (*Info, error) {
 	case ed25519.PublicKey:
 		info.KeyType, info.KeyBits = "Ed25519", 256
 	default:
-		info.KeyType = "desconocido"
+		info.KeyType = "unknown"
 	}
 
 	if err := leaf.VerifyHostname(host); err != nil {
@@ -99,9 +99,9 @@ func classify(err error) string {
 	var ci x509.CertificateInvalidError
 	switch {
 	case errors.As(err, &ua):
-		return "emisor no confiable (cadena incompleta, autofirmado o CA desconocida)"
+		return "untrusted issuer (incomplete chain, self-signed, or unknown CA)"
 	case errors.As(err, &ci) && ci.Reason == x509.Expired:
-		return "certificado caducado o aún no válido"
+		return "certificate expired or not yet valid"
 	}
 	msg := err.Error()
 	if i := strings.Index(msg, ":"); i > 0 && strings.HasPrefix(msg, "x509") {

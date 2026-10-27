@@ -1,5 +1,5 @@
-// Package scan orquesta el sondeo de un objetivo TLS: protocolos, suites,
-// orden de preferencia, certificado y hallazgos.
+// Package scan orchestrates probing a TLS target: protocols, suites,
+// preference order, certificate and findings.
 package scan
 
 import (
@@ -13,13 +13,13 @@ import (
 	"github.com/horoslabs/symbolon/internal/probe"
 )
 
-// Options configura el escaneo.
+// Options configures the scan.
 type Options struct {
 	Timeout time.Duration
-	SNI     string // por defecto, el host del objetivo
+	SNI     string // defaults to the target's host
 }
 
-// SuiteResult es una suite aceptada por el servidor.
+// SuiteResult is a suite accepted by the server.
 type SuiteResult struct {
 	ID     uint16 `json:"id"`
 	Name   string `json:"name"`
@@ -28,16 +28,16 @@ type SuiteResult struct {
 	DHBits int    `json:"dh_bits,omitempty"`
 }
 
-// ProtocolResult es el resultado de una versión del protocolo.
+// ProtocolResult is the result for one protocol version.
 type ProtocolResult struct {
 	Name         string        `json:"name"`
 	Version      uint16        `json:"-"`
 	Supported    bool          `json:"supported"`
-	Suites       []SuiteResult `json:"suites,omitempty"` // en orden de preferencia del servidor
+	Suites       []SuiteResult `json:"suites,omitempty"` // in the server's preference order
 	ServerPrefer *bool         `json:"server_preference,omitempty"`
 }
 
-// Report es el resultado completo de un objetivo.
+// Report is the full result for a target.
 type Report struct {
 	Target    string           `json:"target"`
 	Host      string           `json:"host"`
@@ -49,7 +49,7 @@ type Report struct {
 	Notes     []string         `json:"notes,omitempty"`
 }
 
-// SplitTarget separa host y puerto (443 por defecto).
+// SplitTarget splits host and port (443 by default).
 func SplitTarget(target string) (string, int) {
 	h, p, err := net.SplitHostPort(target)
 	if err != nil {
@@ -69,7 +69,7 @@ type versionSlot struct {
 	dhBySID map[uint16]int
 }
 
-// Scan sondea un objetivo (host o host:puerto).
+// Scan probes a target (host or host:port).
 func Scan(target string, opt Options) (*Report, error) {
 	if opt.Timeout <= 0 {
 		opt.Timeout = 5 * time.Second
@@ -82,7 +82,7 @@ func Scan(target string, opt Options) (*Report, error) {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	p := &probe.Prober{Addr: addr, SNI: sni, Timeout: opt.Timeout}
 
-	// Comprobación de conectividad: si no hay TCP, no tiene sentido seguir.
+	// Connectivity check: if there's no TCP, there's no point continuing.
 	c, err := net.DialTimeout("tcp", addr, opt.Timeout)
 	if err != nil {
 		return nil, err
@@ -121,12 +121,12 @@ func Scan(target string, opt Options) (*Report, error) {
 	if len(der) > 0 {
 		info, err := certs.Analyze(der, sni, r.ScannedAt)
 		if err != nil {
-			r.Notes = append(r.Notes, "certificado no analizable: "+err.Error())
+			r.Notes = append(r.Notes, "could not analyze certificate: "+err.Error())
 		} else {
 			r.Cert = info
 		}
 	} else {
-		r.Notes = append(r.Notes, "no se pudo obtener el certificado")
+		r.Notes = append(r.Notes, "could not obtain the certificate")
 	}
 	r.Findings = Evaluate(r)
 	return r, nil
@@ -162,7 +162,7 @@ func scanVersion(p *probe.Prober, ver uint16) versionSlot {
 				break
 			}
 		}
-		if idx < 0 { // el servidor eligió algo que no ofrecimos
+		if idx < 0 { // the server picked something we didn't offer
 			break
 		}
 		s := remaining[idx]
@@ -191,8 +191,8 @@ func scanVersion(p *probe.Prober, ver uint16) versionSlot {
 	return slot
 }
 
-// fetchCert obtiene el certificado con crypto/tls cuando el sondeo manual no
-// lo vio (p. ej. servidores solo TLS 1.3, que cifran el certificado).
+// fetchCert obtains the certificate with crypto/tls when manual probing
+// didn't see it (e.g. TLS-1.3-only servers, which encrypt the certificate).
 func fetchCert(addr, sni string, timeout time.Duration) [][]byte {
 	d := &net.Dialer{Timeout: timeout}
 	cfg := &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS10}

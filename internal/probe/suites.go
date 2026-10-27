@@ -1,13 +1,13 @@
 package probe
 
-// Grade clasifica una suite de cifrado.
+// Grade classifies a cipher suite.
 type Grade int
 
 const (
-	Good     Grade = iota // AEAD con forward secrecy (o TLS 1.3)
-	Legacy                // CBC o sin forward secrecy
+	Good     Grade = iota // AEAD with forward secrecy (or TLS 1.3)
+	Legacy                // CBC or no forward secrecy
 	Weak                  // 3DES (SWEET32)
-	Insecure              // NULL, anónimas, export, RC4, DES
+	Insecure              // NULL, anonymous, export, RC4, DES
 )
 
 func (g Grade) String() string {
@@ -23,7 +23,7 @@ func (g Grade) String() string {
 	}
 }
 
-// Suite describe una suite de cifrado IANA.
+// Suite describes an IANA cipher suite.
 type Suite struct {
 	ID   uint16
 	Name string
@@ -32,10 +32,10 @@ type Suite struct {
 	Mode string // GCM, CCM, POLY1305, CBC, STREAM, NULL
 }
 
-// FS indica si la suite ofrece forward secrecy.
+// FS reports whether the suite offers forward secrecy.
 func (s Suite) FS() bool { return s.Kex == "ECDHE" || s.Kex == "DHE" || s.Kex == "TLS13" }
 
-// Grade calcula la nota de la suite.
+// Grade computes the suite's grade.
 func (s Suite) Grade() Grade {
 	switch {
 	case s.Kex == "ANON" || s.Enc == "NULL" || s.Enc == "EXPORT" || s.Enc == "RC4" || s.Enc == "DES":
@@ -49,14 +49,14 @@ func (s Suite) Grade() Grade {
 	}
 }
 
-// TLS13Suites son las únicas suites de TLS 1.3.
+// TLS13Suites are the only TLS 1.3 suites.
 var TLS13Suites = []Suite{
 	{0x1301, "TLS_AES_128_GCM_SHA256", "TLS13", "AES128", "GCM"},
 	{0x1302, "TLS_AES_256_GCM_SHA384", "TLS13", "AES256", "GCM"},
 	{0x1303, "TLS_CHACHA20_POLY1305_SHA256", "TLS13", "CHACHA20", "POLY1305"},
 }
 
-// LegacySuites son las suites de SSLv3 a TLS 1.2 que se ofrecen al sondear.
+// LegacySuites are the SSLv3-to-TLS-1.2 suites offered when probing.
 var LegacySuites = []Suite{
 	{0xC02B, "ECDHE-ECDSA-AES128-GCM-SHA256", "ECDHE", "AES128", "GCM"},
 	{0xC02C, "ECDHE-ECDSA-AES256-GCM-SHA384", "ECDHE", "AES256", "GCM"},
@@ -127,7 +127,7 @@ var byID = func() map[uint16]Suite {
 	return m
 }()
 
-// Lookup devuelve la suite por ID; si no se conoce, una genérica.
+// Lookup returns the suite by ID; if unknown, a generic one.
 func Lookup(id uint16) Suite {
 	if s, ok := byID[id]; ok {
 		return s

@@ -1,6 +1,7 @@
-// Package probe implementa un sondeo TLS de bajo nivel: construye ClientHello
-// a mano y lee solo la respuesta del servidor. No completa el handshake, así
-// que no depende de lo que crypto/tls soporte (SSLv3, suites débiles, etc.).
+// Package probe implements a low-level TLS probe: it builds a ClientHello
+// by hand and reads only the server's response. It doesn't complete the
+// handshake, so it isn't limited by what crypto/tls supports (SSLv3, weak
+// suites, etc.).
 package probe
 
 import (
@@ -16,7 +17,7 @@ import (
 	"time"
 )
 
-// Versiones del protocolo.
+// Protocol versions.
 const (
 	VersionSSL30 uint16 = 0x0300
 	VersionTLS10 uint16 = 0x0301
@@ -25,7 +26,7 @@ const (
 	VersionTLS13 uint16 = 0x0304
 )
 
-// VersionName devuelve el nombre legible de una versión.
+// VersionName returns the human-readable name of a version.
 func VersionName(v uint16) string {
 	switch v {
 	case VersionSSL30:
@@ -42,22 +43,22 @@ func VersionName(v uint16) string {
 	return fmt.Sprintf("0x%04x", v)
 }
 
-// Result es lo que se aprende de un solo ClientHello.
+// Result is what's learned from a single ClientHello.
 type Result struct {
-	Supported bool     // el servidor respondió con ServerHello
-	Version   uint16   // versión negociada
-	Suite     uint16   // suite elegida
+	Supported bool     // the server replied with a ServerHello
+	Version   uint16   // negotiated version
+	Suite     uint16   // chosen suite
 	HRR       bool     // HelloRetryRequest (TLS 1.3)
-	Alert     byte     // descripción de la alerta, si la hubo
-	Closed    bool     // el servidor cerró o no respondió sin alerta
-	DHBits    int      // tamaño del primo DH (suites DHE), 0 si no aplica
-	Certs     [][]byte // cadena de certificados DER (SSLv3 a TLS 1.2)
+	Alert     byte     // alert description, if any
+	Closed    bool     // the server closed or didn't respond without an alert
+	DHBits    int      // DH prime size (DHE suites), 0 if not applicable
+	Certs     [][]byte // DER certificate chain (SSLv3 to TLS 1.2)
 }
 
-// Prober envía ClientHello a un servidor.
+// Prober sends a ClientHello to a server.
 type Prober struct {
 	Addr    string // host:port
-	SNI     string // vacío para no enviar SNI
+	SNI     string // empty to not send SNI
 	Timeout time.Duration
 }
 
@@ -109,7 +110,7 @@ func suiteList(suites []Suite) []byte {
 	return b
 }
 
-// wrap envuelve el cuerpo del ClientHello en mensaje de handshake y registro.
+// wrap wraps the ClientHello body in a handshake message and record.
 func wrap(recVer uint16, body []byte) []byte {
 	hs := []byte{0x01, byte(len(body) >> 16), byte(len(body) >> 8), byte(len(body))}
 	hs = append(hs, body...)
@@ -119,17 +120,17 @@ func wrap(recVer uint16, body []byte) []byte {
 	return append(rec, hs...)
 }
 
-// LegacyHello construye un ClientHello de SSLv3 a TLS 1.2.
+// LegacyHello builds a ClientHello from SSLv3 to TLS 1.2.
 func (p *Prober) LegacyHello(ver uint16, suites []Suite) []byte {
 	b := u16(nil, ver)
 	random := make([]byte, 32)
 	_, _ = rand.Read(random)
 	b = append(b, random...)
-	b = append(b, 0) // session id vacío
+	b = append(b, 0) // empty session id
 	sl := suiteList(suites)
 	b = u16(b, uint16(len(sl)))
 	b = append(b, sl...)
-	b = append(b, 1, 0) // compresión: solo null
+	b = append(b, 1, 0) // compression: null only
 
 	var exts []byte
 	if ver > VersionSSL30 {
@@ -149,8 +150,8 @@ func (p *Prober) LegacyHello(ver uint16, suites []Suite) []byte {
 	return wrap(recVer, b)
 }
 
-// TLS13Hello construye un ClientHello de TLS 1.3 con un key_share x25519
-// falso: solo hace falta leer el ServerHello.
+// TLS13Hello builds a TLS 1.3 ClientHello with a fake x25519 key_share:
+// only the ServerHello needs to be read.
 func (p *Prober) TLS13Hello(suites []Suite) []byte {
 	b := u16(nil, VersionTLS12)
 	random := make([]byte, 32)
@@ -182,12 +183,12 @@ func (p *Prober) TLS13Hello(suites []Suite) []byte {
 	return wrap(VersionTLS10, b)
 }
 
-// Legacy sondea una versión de SSLv3 a TLS 1.2 ofreciendo las suites dadas.
+// Legacy probes a version from SSLv3 to TLS 1.2 offering the given suites.
 func (p *Prober) Legacy(ver uint16, suites []Suite) (Result, error) {
 	return p.do(p.LegacyHello(ver, suites))
 }
 
-// TLS13 sondea TLS 1.3 con las suites dadas.
+// TLS13 probes TLS 1.3 with the given suites.
 func (p *Prober) TLS13(suites []Suite) (Result, error) {
 	return p.do(p.TLS13Hello(suites))
 }
@@ -216,7 +217,7 @@ func (p *Prober) do(hello []byte) (Result, error) {
 		}
 		n := int(hdr[3])<<8 | int(hdr[4])
 		if n > 1<<15 {
-			return res, errors.New("registro TLS demasiado grande: el servicio no parece TLS")
+			return res, errors.New("TLS record too large: the service doesn't look like TLS")
 		}
 		body := make([]byte, n)
 		if _, err := io.ReadFull(conn, body); err != nil {
@@ -234,7 +235,7 @@ func (p *Prober) do(hello []byte) (Result, error) {
 		case 0x16: // handshake
 			hs = append(hs, body...)
 		default:
-			return res, fmt.Errorf("tipo de registro inesperado 0x%02x: el servicio no parece TLS", hdr[0])
+			return res, fmt.Errorf("unexpected record type 0x%02x: the service doesn't look like TLS", hdr[0])
 		}
 		if parseFlight(hs, &res) {
 			return res, nil
@@ -242,8 +243,8 @@ func (p *Prober) do(hello []byte) (Result, error) {
 	}
 }
 
-// parseFlight procesa los mensajes de handshake completos acumulados y
-// devuelve true cuando ya no hace falta leer más.
+// parseFlight processes the accumulated complete handshake messages and
+// returns true once no more reading is needed.
 func parseFlight(hs []byte, res *Result) bool {
 	for len(hs) >= 4 {
 		t := hs[0]

@@ -8,7 +8,7 @@ import (
 	"github.com/horoslabs/symbolon/internal/probe"
 )
 
-// Severidades, de mayor a menor.
+// Severities, from most to least severe.
 const (
 	Critical = "critical"
 	High     = "high"
@@ -19,7 +19,7 @@ const (
 
 var sevRank = map[string]int{Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4}
 
-// Rank devuelve el orden de una severidad (0 = más grave).
+// Rank returns the order of a severity (0 = most severe).
 func Rank(sev string) int {
 	if r, ok := sevRank[sev]; ok {
 		return r
@@ -27,7 +27,7 @@ func Rank(sev string) int {
 	return len(sevRank)
 }
 
-// Finding es un hallazgo con su explicación y remediación.
+// Finding is a finding with its explanation and remediation.
 type Finding struct {
 	Severity string `json:"severity"`
 	Title    string `json:"title"`
@@ -49,34 +49,34 @@ func supported(r *Report, v uint16) bool {
 	return p != nil && p.Supported
 }
 
-// Evaluate genera los hallazgos de un informe.
+// Evaluate generates the findings for a report.
 func Evaluate(r *Report) []Finding {
 	var fs []Finding
 	add := func(sev, title, detail, fix string) {
 		fs = append(fs, Finding{Severity: sev, Title: title, Detail: detail, Fix: fix})
 	}
 
-	// Protocolos
+	// Protocols
 	if supported(r, probe.VersionSSL30) {
-		add(High, "SSLv3 habilitado", "SSLv3 es vulnerable a POODLE y está prohibido por RFC 7568.", "Desactiva SSLv3 en el servidor.")
+		add(High, "SSLv3 enabled", "SSLv3 is vulnerable to POODLE and is prohibited by RFC 7568.", "Disable SSLv3 on the server.")
 	}
 	for _, v := range []uint16{probe.VersionTLS10, probe.VersionTLS11} {
 		if supported(r, v) {
-			add(Medium, probe.VersionName(v)+" habilitado", "Protocolo obsoleto (RFC 8996); sin suites AEAD y expuesto a ataques de CBC.", "Exige TLS 1.2 como mínimo.")
+			add(Medium, probe.VersionName(v)+" enabled", "Obsolete protocol (RFC 8996); no AEAD suites and exposed to CBC attacks.", "Require TLS 1.2 at minimum.")
 		}
 	}
 	has12, has13 := supported(r, probe.VersionTLS12), supported(r, probe.VersionTLS13)
 	switch {
 	case !has12 && !has13:
-		add(High, "Sin soporte para TLS 1.2 ni TLS 1.3", "", "Habilita TLS 1.2 y TLS 1.3.")
+		add(High, "No support for TLS 1.2 or TLS 1.3", "", "Enable TLS 1.2 and TLS 1.3.")
 	case !has12:
-		add(Low, "TLS 1.2 no soportado", "Algunos clientes no podrán conectar.", "Habilita TLS 1.2 además de TLS 1.3.")
+		add(Low, "TLS 1.2 not supported", "Some clients won't be able to connect.", "Enable TLS 1.2 in addition to TLS 1.3.")
 	}
 	if !has13 {
-		add(Info, "TLS 1.3 no soportado", "", "Habilita TLS 1.3 si el servidor lo permite.")
+		add(Info, "TLS 1.3 not supported", "", "Enable TLS 1.3 if the server supports it.")
 	}
 
-	// Suites (agregadas entre protocolos)
+	// Suites (aggregated across protocols)
 	seen := map[uint16]bool{}
 	var critical, rc4des, des3, nofs []string
 	minDH := 0
@@ -103,61 +103,61 @@ func Evaluate(r *Report) []Finding {
 		}
 	}
 	if len(critical) > 0 {
-		add(Critical, "Suites sin cifrado, anónimas o de exportación", strings.Join(critical, ", "), "Desactiva estas suites (NULL, aNULL, EXPORT).")
+		add(Critical, "Suites with no encryption, anonymous, or export-grade", strings.Join(critical, ", "), "Disable these suites (NULL, aNULL, EXPORT).")
 	}
 	if len(rc4des) > 0 {
-		add(High, "Suites RC4 o DES aceptadas", strings.Join(rc4des, ", "), "Desactiva RC4 y DES.")
+		add(High, "RC4 or DES suites accepted", strings.Join(rc4des, ", "), "Disable RC4 and DES.")
 	}
 	if len(des3) > 0 {
-		add(Medium, "3DES aceptado (SWEET32)", strings.Join(des3, ", "), "Desactiva las suites 3DES.")
+		add(Medium, "3DES accepted (SWEET32)", strings.Join(des3, ", "), "Disable the 3DES suites.")
 	}
 	if len(nofs) > 0 {
-		add(Low, "Suites sin forward secrecy", strings.Join(nofs, ", "), "Prioriza suites ECDHE/DHE y retira el intercambio de claves RSA estático.")
+		add(Low, "Suites without forward secrecy", strings.Join(nofs, ", "), "Prioritize ECDHE/DHE suites and remove static RSA key exchange.")
 	}
 	if minDH > 0 {
-		detail := fmt.Sprintf("Primo DH de %d bits.", minDH)
+		detail := fmt.Sprintf("DH prime of %d bits.", minDH)
 		switch {
 		case minDH <= 512:
-			add(Critical, "Parámetros Diffie-Hellman de exportación", detail, "Usa grupos DH de al menos 2048 bits (RFC 7919) o solo ECDHE.")
+			add(Critical, "Export-grade Diffie-Hellman parameters", detail, "Use DH groups of at least 2048 bits (RFC 7919), or ECDHE only.")
 		case minDH < 1024:
-			add(High, "Parámetros Diffie-Hellman muy débiles", detail, "Usa grupos DH de al menos 2048 bits (RFC 7919) o solo ECDHE.")
+			add(High, "Very weak Diffie-Hellman parameters", detail, "Use DH groups of at least 2048 bits (RFC 7919), or ECDHE only.")
 		case minDH < 2048:
-			add(Medium, "Parámetros Diffie-Hellman débiles (Logjam)", detail, "Usa grupos DH de al menos 2048 bits (RFC 7919) o solo ECDHE.")
+			add(Medium, "Weak Diffie-Hellman parameters (Logjam)", detail, "Use DH groups of at least 2048 bits (RFC 7919), or ECDHE only.")
 		}
 	}
 	for _, p := range r.Protocols {
 		if p.ServerPrefer != nil && !*p.ServerPrefer {
-			add(Low, "El servidor no impone su orden de suites ("+p.Name+")", "El cliente decide la suite, así que un cliente débil puede forzar una suite peor.", "Activa la preferencia de cifrados del servidor.")
+			add(Low, "The server does not enforce its suite order ("+p.Name+")", "The client decides the suite, so a weak client can force a worse one.", "Enable server cipher preference.")
 			break
 		}
 	}
 
-	// Certificado
+	// Certificate
 	if c := r.Cert; c != nil {
 		switch {
 		case c.Expired:
-			add(High, "Certificado caducado", fmt.Sprintf("Caducó el %s.", c.NotAfter.Format("2006-01-02")), "Renueva el certificado.")
+			add(High, "Certificate expired", fmt.Sprintf("Expired on %s.", c.NotAfter.Format("2006-01-02")), "Renew the certificate.")
 		case c.DaysLeft < 15:
-			add(Medium, "El certificado caduca en menos de 15 días", fmt.Sprintf("Caduca el %s (%d días).", c.NotAfter.Format("2006-01-02"), c.DaysLeft), "Renueva el certificado.")
+			add(Medium, "Certificate expires in less than 15 days", fmt.Sprintf("Expires on %s (%d days).", c.NotAfter.Format("2006-01-02"), c.DaysLeft), "Renew the certificate.")
 		case c.DaysLeft < 30:
-			add(Low, "El certificado caduca en menos de 30 días", fmt.Sprintf("Caduca el %s (%d días).", c.NotAfter.Format("2006-01-02"), c.DaysLeft), "Programa la renovación.")
+			add(Low, "Certificate expires in less than 30 days", fmt.Sprintf("Expires on %s (%d days).", c.NotAfter.Format("2006-01-02"), c.DaysLeft), "Schedule the renewal.")
 		}
 		if !c.HostnameOK {
-			add(High, "El certificado no coincide con el nombre", c.HostnameErr, "Emite un certificado con el nombre correcto en el SAN.")
+			add(High, "Certificate does not match the hostname", c.HostnameErr, "Issue a certificate with the correct name in the SAN.")
 		}
 		if !c.Trusted && !c.Expired {
-			title := "Cadena de certificados no confiable"
+			title := "Untrusted certificate chain"
 			if c.SelfSigned {
-				title = "Certificado autofirmado"
+				title = "Self-signed certificate"
 			}
-			add(High, title, c.TrustErr, "Usa un certificado de una CA pública y envía la cadena intermedia completa.")
+			add(High, title, c.TrustErr, "Use a certificate from a public CA and send the full intermediate chain.")
 		}
 		if (c.KeyType == "RSA" && c.KeyBits < 2048) || (c.KeyType == "ECDSA" && c.KeyBits < 256) {
-			add(High, fmt.Sprintf("Clave del certificado débil (%s %d bits)", c.KeyType, c.KeyBits), "", "Genera una clave RSA de 2048 bits o más, o ECDSA P-256.")
+			add(High, fmt.Sprintf("Weak certificate key (%s %d bits)", c.KeyType, c.KeyBits), "", "Generate an RSA key of 2048 bits or more, or ECDSA P-256.")
 		}
 		up := strings.ToUpper(c.SigAlg)
 		if strings.Contains(up, "SHA1") || strings.Contains(up, "MD5") || strings.Contains(up, "MD2") {
-			add(High, "Firma del certificado débil ("+c.SigAlg+")", "", "Reemite el certificado con SHA-256 o superior.")
+			add(High, "Weak certificate signature ("+c.SigAlg+")", "", "Reissue the certificate with SHA-256 or higher.")
 		}
 	}
 

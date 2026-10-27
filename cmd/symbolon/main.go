@@ -1,5 +1,5 @@
-// symbolon audita la configuración TLS/SSL de un servicio: protocolos, suites,
-// orden de preferencia y certificado.
+// symbolon audits the TLS/SSL configuration of a service: protocols, suites,
+// preference order and certificate.
 package main
 
 import (
@@ -18,22 +18,22 @@ import (
 
 var version = "dev"
 
-const usage = `symbolon — auditoría TLS/SSL
+const usage = `symbolon — TLS/SSL audit
 
-Uso:
-  symbolon scan [flags] host[:puerto]...
+Usage:
+  symbolon scan [flags] host[:port]...
   symbolon version
 
-Flags de scan:
-  -json            salida JSON
-  -list fichero    lee objetivos de un fichero (uno por línea, # comenta)
-  -sni nombre      SNI a enviar (por defecto, el host)
-  -timeout 5s      timeout por conexión
-  -c 4             objetivos en paralelo
-  -fail-on nivel   sale con código 2 si hay hallazgos >= nivel
+Scan flags:
+  -json            JSON output
+  -list file       read targets from a file (one per line, # comments)
+  -sni name        SNI to send (defaults to the host)
+  -timeout 5s      per-connection timeout
+  -c 4             targets in parallel
+  -fail-on level   exit with code 2 if findings >= level
                    (critical, high, medium, low)
 
-Ejemplo:
+Example:
   symbolon scan badssl.com tls-v1-0.badssl.com:1010
 `
 
@@ -47,13 +47,13 @@ func main() {
 type exitCode int
 
 func (e exitCode) Error() string {
-	return fmt.Sprintf("hallazgos por encima del umbral (código %d)", int(e))
+	return fmt.Sprintf("findings above threshold (code %d)", int(e))
 }
 
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, usage)
-		return fmt.Errorf("falta el subcomando")
+		return fmt.Errorf("missing subcommand")
 	}
 	switch args[0] {
 	case "scan":
@@ -71,7 +71,7 @@ func run(args []string, out io.Writer) error {
 		return nil
 	}
 	fmt.Fprint(os.Stderr, usage)
-	return fmt.Errorf("subcomando desconocido %q", args[0])
+	return fmt.Errorf("unknown subcommand %q", args[0])
 }
 
 func readList(path string) ([]string, error) {
@@ -94,12 +94,12 @@ func readList(path string) ([]string, error) {
 
 func cmdScan(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
-	asJSON := fs.Bool("json", false, "salida JSON")
-	list := fs.String("list", "", "fichero con objetivos")
-	sni := fs.String("sni", "", "SNI a enviar")
-	timeout := fs.Duration("timeout", 5*time.Second, "timeout por conexión")
-	conc := fs.Int("c", 4, "objetivos en paralelo")
-	failOn := fs.String("fail-on", "", "umbral de severidad para código de salida 2")
+	asJSON := fs.Bool("json", false, "JSON output")
+	list := fs.String("list", "", "file with targets")
+	sni := fs.String("sni", "", "SNI to send")
+	timeout := fs.Duration("timeout", 5*time.Second, "per-connection timeout")
+	conc := fs.Int("c", 4, "targets in parallel")
+	failOn := fs.String("fail-on", "", "severity threshold for exit code 2")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -112,10 +112,10 @@ func cmdScan(args []string, out io.Writer) error {
 		targets = append(targets, more...)
 	}
 	if len(targets) == 0 {
-		return fmt.Errorf("indica al menos un objetivo")
+		return fmt.Errorf("specify at least one target")
 	}
 	if *failOn != "" && scan.Rank(*failOn) >= scan.Rank(scan.Info) {
-		return fmt.Errorf("-fail-on %q no es válido (critical, high, medium, low)", *failOn)
+		return fmt.Errorf("-fail-on %q is not valid (critical, high, medium, low)", *failOn)
 	}
 	if *conc < 1 {
 		*conc = 1
@@ -172,7 +172,7 @@ func cmdScan(args []string, out io.Writer) error {
 		}
 	}
 	if len(reports) == 0 {
-		return fmt.Errorf("ningún objetivo escaneado")
+		return fmt.Errorf("no target scanned")
 	}
 	if exceeded {
 		return exitCode(2)

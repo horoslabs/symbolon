@@ -6,15 +6,15 @@ import (
 	"strings"
 )
 
-// WriteText imprime el informe en texto plano, corto y apto para móvil.
+// WriteText prints the report as short, mobile-friendly plain text.
 func (r *Report) WriteText(w io.Writer) {
 	fmt.Fprintf(w, "== %s ==\n", r.Target)
 
-	fmt.Fprintln(w, "\nProtocolos")
+	fmt.Fprintln(w, "\nProtocols")
 	for _, p := range r.Protocols {
 		mark := "no"
 		if p.Supported {
-			mark = "SÍ"
+			mark = "YES"
 		}
 		fmt.Fprintf(w, "  %-8s %s\n", p.Name, mark)
 	}
@@ -26,9 +26,9 @@ func (r *Report) WriteText(w io.Writer) {
 		pref := ""
 		if p.ServerPrefer != nil {
 			if *p.ServerPrefer {
-				pref = " (orden del servidor)"
+				pref = " (server order)"
 			} else {
-				pref = " (orden del cliente)"
+				pref = " (client order)"
 			}
 		}
 		fmt.Fprintf(w, "\n%s: suites%s\n", p.Name, pref)
@@ -46,17 +46,17 @@ func (r *Report) WriteText(w io.Writer) {
 	}
 
 	if c := r.Cert; c != nil {
-		fmt.Fprintln(w, "\nCertificado")
-		fmt.Fprintf(w, "  Sujeto:  %s\n", c.Subject)
-		fmt.Fprintf(w, "  Emisor:  %s\n", c.Issuer)
-		fmt.Fprintf(w, "  Validez: %s → %s (%d días)\n", c.NotBefore.Format("2006-01-02"), c.NotAfter.Format("2006-01-02"), c.DaysLeft)
-		fmt.Fprintf(w, "  Clave:   %s %d · firma %s\n", c.KeyType, c.KeyBits, c.SigAlg)
-		fmt.Fprintf(w, "  Cadena:  %d certs · confiable: %s · nombre: %s\n", c.ChainLen, yn(c.Trusted), yn(c.HostnameOK))
+		fmt.Fprintln(w, "\nCertificate")
+		fmt.Fprintf(w, "  Subject:  %s\n", c.Subject)
+		fmt.Fprintf(w, "  Issuer:   %s\n", c.Issuer)
+		fmt.Fprintf(w, "  Validity: %s → %s (%d days)\n", c.NotBefore.Format("2006-01-02"), c.NotAfter.Format("2006-01-02"), c.DaysLeft)
+		fmt.Fprintf(w, "  Key:      %s %d · signature %s\n", c.KeyType, c.KeyBits, c.SigAlg)
+		fmt.Fprintf(w, "  Chain:    %d certs · trusted: %s · name: %s\n", c.ChainLen, yn(c.Trusted), yn(c.HostnameOK))
 	}
 
-	fmt.Fprintln(w, "\nHallazgos")
+	fmt.Fprintln(w, "\nFindings")
 	if len(r.Findings) == 0 {
-		fmt.Fprintln(w, "  ninguno")
+		fmt.Fprintln(w, "  none")
 	}
 	for _, f := range r.Findings {
 		fmt.Fprintf(w, "  [%s] %s\n", strings.ToUpper(f.Severity), f.Title)
@@ -68,13 +68,13 @@ func (r *Report) WriteText(w io.Writer) {
 		}
 	}
 	for _, n := range r.Notes {
-		fmt.Fprintf(w, "\nnota: %s\n", n)
+		fmt.Fprintf(w, "\nnote: %s\n", n)
 	}
 }
 
 func yn(b bool) string {
 	if b {
-		return "sí"
+		return "yes"
 	}
 	return "NO"
 }
