@@ -23,8 +23,13 @@ go build -o symbolon ./cmd/symbolon
 ./symbolon scan example.com
 ./symbolon scan mail.example.com:993 -sni mail.example.com
 ./symbolon scan -list targets.txt -c 8 -json > tls.json
+./symbolon scan -list targets.txt -html > report.html
 ./symbolon scan -fail-on high example.com   # exit code 2 if findings >= high
 ```
+
+### HTML report
+
+`-html` writes a single self-contained page with every target: a summary table (worst severity, findings per severity, certificate days left) and, per target, findings with remediation, protocols, suites in preference order and the certificate. It has inline CSS only, no JavaScript or external resources, and a restrictive CSP; every value from the scanned server is escaped. `-html` and `-json` are mutually exclusive.
 
 ## Makefile
 
@@ -63,6 +68,6 @@ The tests spin up local TLS servers (one legacy with RC4/3DES, another modern) a
 ## Roadmap
 
 - STARTTLS (SMTP, IMAP, POP3, FTP, Postgres).
-- HTML report and diff between scans.
+- Diff between scans.
 - Input from the [skopos](https://github.com/horoslabs/skopos) inventory.
 - SSLv2, Heartbleed, ROBOT, secure renegotiation, compression, OCSP stapling, and HSTS.

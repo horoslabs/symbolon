@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta name="referrer" content="no-referrer">
+<title>symbolon report</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--muted:#666;--line:#e3e3e3;--card:#fafafa;
+--critical:#7b0f0f;--high:#c62828;--medium:#e67e00;--low:#b8a000;--info:#1565c0;--ok:#2e7d32}
+@media (prefers-color-scheme:dark){:root{--bg:#121212;--fg:#e8e8e8;--muted:#999;--line:#2c2c2c;--card:#1a1a1a}}
+*{box-sizing:border-box}
+body{margin:0 auto;max-width:960px;padding:1.5rem 1rem;background:var(--bg);color:var(--fg);
+font:15px/1.5 system-ui,-apple-system,sans-serif}
+h1{font-size:1.4rem;margin:0 0 .25rem}h2{font-size:1.2rem;margin:0}h3{font-size:1rem;margin:1.25rem 0 .5rem}
+.muted{color:var(--muted);font-size:.85rem}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem}
+table{width:100%;border-collapse:collapse;margin:.25rem 0}
+th,td{text-align:left;padding:.35rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;font-size:.8rem;text-transform:uppercase;color:var(--muted)}
+section.target{border:1px solid var(--line);border-radius:8px;padding:1rem;margin:1.5rem 0;background:var(--card)}
+.head{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+.badge{display:inline-block;padding:.05rem .45rem;border-radius:4px;color:#fff;font-size:.75rem;
+font-weight:600;text-transform:uppercase;white-space:nowrap}
+.sev-critical{background:var(--critical)}.sev-high{background:var(--high)}.sev-medium{background:var(--medium)}
+.sev-low{background:var(--low)}.sev-info{background:var(--info)}.sev-ok{background:var(--ok)}
+.g-good{color:var(--ok)}.g-legacy{color:var(--low)}.g-weak{color:var(--medium)}.g-insecure{color:var(--high);font-weight:600}
+.yes{color:var(--ok);font-weight:600}.no{color:var(--high);font-weight:600}
+.finding{border-left:4px solid var(--line);padding:.4rem .75rem;margin:.5rem 0}
+.finding.critical{border-color:var(--critical)}.finding.high{border-color:var(--high)}
+.finding.medium{border-color:var(--medium)}.finding.low{border-color:var(--low)}.finding.info{border-color:var(--info)}
+.finding p{margin:.2rem 0}.fix::before{content:"→ "}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem;margin:0}dt{color:var(--muted)}dd{margin:0;word-break:break-word}
+.scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<header>
+<h1>symbolon — TLS/SSL report</h1>
+<div class="muted">Generated {{.Generated.Format "2006-01-02 15:04 UTC"}} · {{len .Reports}} target(s)</div>
+</header>
+
+<h3>Summary</h3>
+<div class="scroll"><table>
+<tr><th>Target</th><th>Worst</th><th>Crit</th><th>High</th><th>Med</th><th>Low</th><th>Info</th><th>Cert days</th></tr>
+{{range $i, $r := .Reports}}{{$c := counts $r}}
+<tr>
+<td><a href="#t{{$i}}" class="mono">{{$r.Target}}</a></td>
+<td>{{with worst $r}}<span class="badge sev-{{.}}">{{.}}</span>{{else}}<span class="badge sev-ok">ok</span>{{end}}</td>
+<td>{{index $c "critical"}}</td><td>{{index $c "high"}}</td><td>{{index $c "medium"}}</td><td>{{index $c "low"}}</td><td>{{index $c "info"}}</td>
+<td>{{with $r.Cert}}{{.DaysLeft}}{{else}}—{{end}}</td>
+</tr>
+{{end}}
+</table></div>
+
+{{range $i, $r := .Reports}}
+<section class="target" id="t{{$i}}">
+<div class="head">
+<h2 class="mono">{{$r.Target}}</h2>
+<span class="muted">{{$r.Host}}:{{$r.Port}} · {{$r.ScannedAt.Format "2006-01-02 15:04:05 UTC"}}</span>
+</div>
+
+<h3>Findings</h3>
+{{range $r.Findings}}
+<div class="finding {{.Severity}}">
+<p><span class="badge sev-{{.Severity}}">{{.Severity}}</span> <strong>{{.Title}}</strong></p>
+{{with .Detail}}<p class="mono">{{.}}</p>{{end}}
+{{with .Fix}}<p class="fix">{{.}}</p>{{end}}
+</div>
+{{else}}<p>No findings.</p>{{end}}
+
+<h3>Protocols</h3>
+<table>
+<tr><th>Protocol</th><th>Supported</th><th>Order</th></tr>
+{{range $r.Protocols}}
+<tr><td>{{.Name}}</td>
+<td>{{if .Supported}}<span class="yes">yes</span>{{else}}no{{end}}</td>
+<td>{{with .ServerPrefer}}{{if .}}server{{else}}client{{end}}{{else}}—{{end}}</td></tr>
+{{end}}
+</table>
+
+{{range $r.Protocols}}{{if .Supported}}
+<h3>{{.Name}} suites</h3>
+<div class="scroll"><table>
+<tr><th>#</th><th>Suite</th><th>Grade</th><th>FS</th><th>DH</th></tr>
+{{range $j, $s := .Suites}}
+<tr><td>{{inc $j}}</td><td class="mono">{{$s.Name}}</td><td class="g-{{$s.Grade}}">{{$s.Grade}}</td>
+<td>{{if $s.FS}}<span class="yes">yes</span>{{else}}<span class="no">no</span>{{end}}</td>
+<td>{{if $s.DHBits}}{{$s.DHBits}}{{else}}—{{end}}</td></tr>
+{{end}}
+</table></div>
+{{end}}{{end}}
+
+{{with $r.Cert}}
+<h3>Certificate</h3>
+<dl>
+<dt>Subject</dt><dd class="mono">{{.Subject}}</dd>
+<dt>Issuer</dt><dd class="mono">{{.Issuer}}</dd>
+{{with .DNSNames}}<dt>SAN</dt><dd class="mono">{{join . ", "}}</dd>{{end}}
+<dt>Validity</dt><dd>{{.NotBefore.Format "2006-01-02"}} → {{.NotAfter.Format "2006-01-02"}} ({{.DaysLeft}} days)</dd>
+<dt>Key</dt><dd>{{.KeyType}} {{.KeyBits}} · {{.SigAlg}}</dd>
+<dt>Chain</dt><dd>{{.ChainLen}} cert(s){{if .SelfSigned}} · self-signed{{end}}</dd>
+<dt>Trusted</dt><dd>{{if .Trusted}}<span class="yes">yes</span>{{else}}<span class="no">no</span> {{.TrustErr}}{{end}}</dd>
+<dt>Hostname</dt><dd>{{if .HostnameOK}}<span class="yes">yes</span>{{else}}<span class="no">no</span> {{.HostnameErr}}{{end}}</dd>
+</dl>
+{{end}}
+
+{{with $r.Notes}}
+<h3>Notes</h3>
+<ul>{{range .}}<li class="mono">{{.}}</li>{{end}}</ul>
+{{end}}
+</section>
+{{end}}
+</body>
+</html>

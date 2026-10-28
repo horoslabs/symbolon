@@ -26,6 +26,7 @@ Usage:
 
 Scan flags:
   -json            JSON output
+  -html            HTML report (symbolon scan -html host > report.html)
   -list file       read targets from a file (one per line, # comments)
   -sni name        SNI to send (defaults to the host)
   -timeout 5s      per-connection timeout
@@ -95,6 +96,7 @@ func readList(path string) ([]string, error) {
 func cmdScan(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "JSON output")
+	asHTML := fs.Bool("html", false, "HTML report")
 	list := fs.String("list", "", "file with targets")
 	sni := fs.String("sni", "", "SNI to send")
 	timeout := fs.Duration("timeout", 5*time.Second, "per-connection timeout")
@@ -113,6 +115,9 @@ func cmdScan(args []string, out io.Writer) error {
 	}
 	if len(targets) == 0 {
 		return fmt.Errorf("specify at least one target")
+	}
+	if *asJSON && *asHTML {
+		return fmt.Errorf("-json and -html are mutually exclusive")
 	}
 	if *failOn != "" && scan.Rank(*failOn) >= scan.Rank(scan.Info) {
 		return fmt.Errorf("-fail-on %q is not valid (critical, high, medium, low)", *failOn)
@@ -157,13 +162,18 @@ func cmdScan(args []string, out io.Writer) error {
 		}
 	}
 
-	if *asJSON {
+	switch {
+	case *asHTML:
+		if err := scan.WriteHTML(out, reports); err != nil {
+			return err
+		}
+	case *asJSON:
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(reports); err != nil {
 			return err
 		}
-	} else {
+	default:
 		for i, r := range reports {
 			if i > 0 {
 				fmt.Fprintln(out)
