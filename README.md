@@ -71,3 +71,7 @@ The tests spin up local TLS servers (one legacy with RC4/3DES, another modern) a
 - Diff between scans.
 - Input from the [skopos](https://github.com/horoslabs/skopos) inventory.
 - SSLv2, Heartbleed, ROBOT, secure renegotiation, compression, OCSP stapling, and HSTS.
+
+## License
+
+[MIT](LICENSE)
