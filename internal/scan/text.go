@@ -12,11 +12,7 @@ func (r *Report) WriteText(w io.Writer) {
 
 	fmt.Fprintln(w, "\nProtocols")
 	for _, p := range r.Protocols {
-		mark := "no"
-		if p.Supported {
-			mark = "YES"
-		}
-		fmt.Fprintf(w, "  %-8s %s\n", p.Name, mark)
+		fmt.Fprintf(w, "  %-8s %s\n", p.Name, r.ProtocolMark(p))
 	}
 
 	for _, p := range r.Protocols {
@@ -70,6 +66,22 @@ func (r *Report) WriteText(w io.Writer) {
 	for _, n := range r.Notes {
 		fmt.Fprintf(w, "\nnote: %s\n", n)
 	}
+}
+
+// ProtocolMark is the short status of a protocol: YES, no or n/a (when no
+// probe got any answer), followed by the failure reason if any.
+func (r *Report) ProtocolMark(p ProtocolResult) string {
+	mark := "no"
+	switch {
+	case p.Supported:
+		return "YES"
+	case r.Unanswered():
+		mark = "n/a"
+	}
+	if p.ProbeError != "" {
+		mark += " (" + p.ProbeError + ")"
+	}
+	return mark
 }
 
 func yn(b bool) string {

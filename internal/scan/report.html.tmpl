@@ -75,7 +75,7 @@ dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem;margin:0}dt
 <tr><th>Protocol</th><th>Supported</th><th>Order</th></tr>
 {{range $r.Protocols}}
 <tr><td>{{.Name}}</td>
-<td>{{if .Supported}}<span class="yes">yes</span>{{else}}no{{end}}</td>
+<td>{{if .Supported}}<span class="yes">yes</span>{{else}}{{$r.ProtocolMark .}}{{end}}</td>
 <td>{{with .ServerPrefer}}{{if .}}server{{else}}client{{end}}{{else}}—{{end}}</td></tr>
 {{end}}
 </table>

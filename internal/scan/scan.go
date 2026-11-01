@@ -4,6 +4,7 @@ package scan
 
 import (
 	"crypto/tls"
+	"errors"
 	"net"
 	"strconv"
 	"sync"
@@ -35,6 +36,12 @@ type ProtocolResult struct {
 	Supported    bool          `json:"supported"`
 	Suites       []SuiteResult `json:"suites,omitempty"` // in the server's preference order
 	ServerPrefer *bool         `json:"server_preference,omitempty"`
+	// ProbeError says why the version was not negotiated (alert, close,
+	// timeout or error). Empty when supported.
+	ProbeError string `json:"probe_error,omitempty"`
+	// NoAnswer is true when the probe got nothing back at all (closed,
+	// timed out or could not connect), as opposed to an alert.
+	NoAnswer bool `json:"-"`
 }
 
 // Report is the full result for a target.
@@ -49,6 +56,30 @@ type Report struct {
 	Notes     []string         `json:"notes,omitempty"`
 }
 
+// Negotiated reports whether any probe got a ServerHello.
+func (r *Report) Negotiated() bool {
+	for _, p := range r.Protocols {
+		if p.Supported {
+			return true
+		}
+	}
+	return false
+}
+
+// Unanswered reports whether no probe got any reply from the server, so
+// "not supported" cannot be told apart from "not reachable".
+func (r *Report) Unanswered() bool {
+	if len(r.Protocols) == 0 {
+		return false
+	}
+	for _, p := range r.Protocols {
+		if p.Supported || !p.NoAnswer {
+			return false
+		}
+	}
+	return true
+}
+
 // SplitTarget splits host and port (443 by default).
 func SplitTarget(target string) (string, int) {
 	h, p, err := net.SplitHostPort(target)
@@ -60,13 +91,6 @@ func SplitTarget(target string) (string, int) {
 		return h, 443
 	}
 	return h, n
-}
-
-type versionSlot struct {
-	res     ProtocolResult
-	certs   [][]byte
-	notes   []string
-	dhBySID map[uint16]int
 }
 
 // Scan probes a target (host or host:port).
@@ -117,6 +141,9 @@ func Scan(target string, opt Options) (*Report, error) {
 	}
 	if len(der) == 0 {
 		der = fetchCert(addr, sni, opt.Timeout)
+		if len(der) > 0 && !r.Negotiated() {
+			r.Notes = append(r.Notes, "certificate obtained only through the crypto/tls fallback; every raw probe failed, so something may be filtering hand-built ClientHellos")
+		}
 	}
 	if len(der) > 0 {
 		info, err := certs.Analyze(der, sni, r.ScannedAt)
@@ -132,6 +159,13 @@ func Scan(target string, opt Options) (*Report, error) {
 	return r, nil
 }
 
+type versionSlot struct {
+	res     ProtocolResult
+	certs   [][]byte
+	notes   []string
+	dhBySID map[uint16]int
+}
+
 func scanVersion(p *probe.Prober, ver uint16) versionSlot {
 	slot := versionSlot{res: ProtocolResult{Name: probe.VersionName(ver), Version: ver}}
 	all := probe.LegacySuites
@@ -143,16 +177,27 @@ func scanVersion(p *probe.Prober, ver uint16) versionSlot {
 
 	remaining := append([]probe.Suite(nil), all...)
 	var accepted []probe.Suite
-	for range all {
+	for i := range all {
 		if len(remaining) == 0 {
 			break
 		}
+		first := i == 0
 		res, err := probeFn(remaining)
 		if err != nil {
 			slot.notes = append(slot.notes, slot.res.Name+": "+err.Error())
+			if first {
+				slot.res.ProbeError, slot.res.NoAnswer = probeErrReason(err)
+			}
 			break
 		}
 		if !res.Supported || res.Version != ver {
+			if first {
+				slot.res.ProbeError = res.FailReason()
+				slot.res.NoAnswer = res.Closed || res.TimedOut
+				if res.Supported {
+					slot.res.ProbeError = "server replied with " + probe.VersionName(res.Version)
+				}
+			}
 			break
 		}
 		idx := -1
@@ -189,6 +234,20 @@ func scanVersion(p *probe.Prober, ver uint16) versionSlot {
 		}
 	}
 	return slot
+}
+
+// probeErrReason classifies a probe error. Network errors (dial failures,
+// timeouts) mean the server never answered; anything else came from a
+// reply that was not TLS.
+func probeErrReason(err error) (string, bool) {
+	var ne net.Error
+	if errors.As(err, &ne) {
+		if ne.Timeout() {
+			return probe.ReasonTimeout, true
+		}
+		return err.Error(), true
+	}
+	return err.Error(), false
 }
 
 // fetchCert obtains the certificate with crypto/tls when manual probing

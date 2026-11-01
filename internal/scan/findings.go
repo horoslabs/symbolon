@@ -56,7 +56,52 @@ func Evaluate(r *Report) []Finding {
 		fs = append(fs, Finding{Severity: sev, Title: title, Detail: detail, Fix: fix})
 	}
 
-	// Protocols
+	if r.Negotiated() {
+		protocolFindings(r, add)
+	} else {
+		add(Medium, "No TLS negotiation possible", noNegotiationDetail(r), "Check that the port serves TLS, that SNI is correct, and that no firewall, proxy or filter is interfering.")
+	}
+	certFindings(r, add)
+
+	sort.SliceStable(fs, func(i, j int) bool { return Rank(fs[i].Severity) < Rank(fs[j].Severity) })
+	return fs
+}
+
+// noNegotiationDetail summarises why every probe failed, e.g. "all probes
+// were closed by the server or timed out".
+func noNegotiationDetail(r *Report) string {
+	var phrases []string
+	seen := map[string]bool{}
+	for _, p := range r.Protocols {
+		var ph string
+		switch e := p.ProbeError; {
+		case e == probe.ReasonClosed:
+			ph = "were closed by the server"
+		case e == probe.ReasonTimeout:
+			ph = "timed out"
+		case strings.HasPrefix(e, "alert "):
+			ph = "were rejected with an " + e
+		case e == "":
+			continue
+		default:
+			ph = "failed (" + e + ")"
+		}
+		if !seen[ph] {
+			seen[ph] = true
+			phrases = append(phrases, ph)
+		}
+	}
+	if len(phrases) == 0 {
+		return "No probe received a ServerHello."
+	}
+	return "No probe received a ServerHello: all probes " + strings.Join(phrases, " or ") + "."
+}
+
+type addFunc func(sev, title, detail, fix string)
+
+// protocolFindings covers protocols, suites, DH and suite order. It only
+// makes sense when at least one version was negotiated.
+func protocolFindings(r *Report, add addFunc) {
 	if supported(r, probe.VersionSSL30) {
 		add(High, "SSLv3 enabled", "SSLv3 is vulnerable to POODLE and is prohibited by RFC 7568.", "Disable SSLv3 on the server.")
 	}
@@ -131,8 +176,9 @@ func Evaluate(r *Report) []Finding {
 			break
 		}
 	}
+}
 
-	// Certificate
+func certFindings(r *Report, add addFunc) {
 	if c := r.Cert; c != nil {
 		switch {
 		case c.Expired:
@@ -160,7 +206,4 @@ func Evaluate(r *Report) []Finding {
 			add(High, "Weak certificate signature ("+c.SigAlg+")", "", "Reissue the certificate with SHA-256 or higher.")
 		}
 	}
-
-	sort.SliceStable(fs, func(i, j int) bool { return Rank(fs[i].Severity) < Rank(fs[j].Severity) })
-	return fs
 }
