@@ -50,12 +50,61 @@ type Result struct {
 	Suite     uint16   // chosen suite
 	HRR       bool     // HelloRetryRequest (TLS 1.3)
 	Alert     byte     // alert description, if any
-	Closed    bool     // the server closed or didn't respond without an alert
+	Closed    bool     // the server closed the connection without a reply
+	TimedOut  bool     // the server sent nothing before the deadline
 	DHBits    int      // DH prime size (DHE suites), 0 if not applicable
 	Certs     [][]byte // DER certificate chain (SSLv3 to TLS 1.2)
 }
 
+// Failure reasons returned by Result.FailReason.
+const (
+	ReasonClosed  = "closed without reply"
+	ReasonTimeout = "timeout"
+)
+
+var alertNames = map[byte]string{
+	0:   "close_notify",
+	10:  "unexpected_message",
+	20:  "bad_record_mac",
+	40:  "handshake_failure",
+	47:  "illegal_parameter",
+	50:  "decode_error",
+	70:  "protocol_version",
+	71:  "insufficient_security",
+	80:  "internal_error",
+	86:  "inappropriate_fallback",
+	90:  "user_canceled",
+	109: "missing_extension",
+	112: "unrecognized_name",
+	120: "no_application_protocol",
+}
+
+// AlertName returns the RFC name of an alert description.
+func AlertName(a byte) string {
+	if n, ok := alertNames[a]; ok {
+		return n
+	}
+	return "unknown"
+}
+
+// FailReason explains why a probe got no ServerHello, or "" if it did.
+func (r Result) FailReason() string {
+	switch {
+	case r.Supported:
+		return ""
+	case r.Alert != 0:
+		return fmt.Sprintf("alert %s (%d)", AlertName(r.Alert), r.Alert)
+	case r.TimedOut:
+		return ReasonTimeout
+	case r.Closed:
+		return ReasonClosed
+	}
+	return "no reply"
+}
+
 // Prober sends a ClientHello to a server.
+// Addr should be a pinned ip:port so every probe hits the same server.
+
 type Prober struct {
 	Addr    string // host:port
 	SNI     string // empty to not send SNI
@@ -202,7 +251,7 @@ func (p *Prober) do(hello []byte) (Result, error) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(p.Timeout))
 	if _, err := conn.Write(hello); err != nil {
-		res.Closed = true
+		markFailure(&res, err)
 		return res, nil
 	}
 
@@ -210,9 +259,7 @@ func (p *Prober) do(hello []byte) (Result, error) {
 	for {
 		hdr := make([]byte, 5)
 		if _, err := io.ReadFull(conn, hdr); err != nil {
-			if !res.Supported {
-				res.Closed = true
-			}
+			markFailure(&res, err)
 			return res, nil
 		}
 		n := int(hdr[3])<<8 | int(hdr[4])
@@ -221,15 +268,18 @@ func (p *Prober) do(hello []byte) (Result, error) {
 		}
 		body := make([]byte, n)
 		if _, err := io.ReadFull(conn, body); err != nil {
-			if !res.Supported {
-				res.Closed = true
-			}
+			markFailure(&res, err)
 			return res, nil
 		}
 		switch hdr[0] {
 		case 0x15: // alert
 			if len(body) >= 2 {
 				res.Alert = body[1]
+			}
+			// close_notify (0) is indistinguishable from "no alert" in
+			// Alert, so record it as a close.
+			if res.Alert == 0 && !res.Supported {
+				res.Closed = true
 			}
 			return res, nil
 		case 0x16: // handshake
@@ -241,6 +291,20 @@ func (p *Prober) do(hello []byte) (Result, error) {
 			return res, nil
 		}
 	}
+}
+
+// markFailure records why the read or write failed, unless a ServerHello
+// was already seen (then the failure is irrelevant).
+func markFailure(res *Result, err error) {
+	if res.Supported {
+		return
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		res.TimedOut = true
+		return
+	}
+	res.Closed = true
 }
 
 // parseFlight processes the accumulated complete handshake messages and
