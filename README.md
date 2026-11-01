@@ -14,6 +14,8 @@ Go's `crypto/tls` isn't suited for auditing (it doesn't support SSLv3 or weak su
 - **TLS 1.3:** `supported_versions` and a fake x25519 `key_share` (only the ServerHello is read).
 - **Certificate:** parsed from the same flight (SSLv3 to TLS 1.2); on TLS-1.3-only servers, `crypto/tls` is used as a fallback.
 - **Diffie-Hellman:** prime size in DHE suites (Logjam).
+- **One IP per scan:** the hostname is resolved once (IPv4 first) and the first IP that accepts a TCP connection is pinned for every probe and the certificate fallback, so hosts with several A/AAAA records give consistent results. SNI stays the hostname. `-all-ips` scans every resolved IP and prints one report per IP.
+- **Failure reasons:** when a version is not negotiated, the reason is kept per protocol (`alert protocol_version (70)`, `closed without reply`, `timeout`) in the text output and as `probe_error` in JSON.
 
 ## Usage
 
@@ -25,7 +27,10 @@ go build -o symbolon ./cmd/symbolon
 ./symbolon scan -list targets.txt -c 8 -json > tls.json
 ./symbolon scan -list targets.txt -html > report.html
 ./symbolon scan -fail-on high example.com   # exit code 2 if findings >= high
+./symbolon scan -all-ips example.com        # one report per resolved IP
 ```
+
+The text header shows the scanned IP (`== example.com (192.0.2.10) ==`) and JSON reports have an `ip` field. With `-all-ips`, unreachable IPs are reported on stderr and the reachable ones are still scanned.
 
 ### HTML report
 
@@ -46,6 +51,8 @@ make clean                 # remove artifacts
 ## Findings
 
 Obsolete protocols (SSLv3, TLS 1.0/1.1), NULL/anonymous/export/RC4/DES/3DES suites, lack of forward secrecy, weak DH, suite order enforced by the client, expired or soon-to-expire certificate, mismatched name, untrusted or self-signed chain, weak key or signature.
+
+If no probe gets a ServerHello at all, symbolon does not report protocol or suite findings (it cannot tell "not supported" from "not reachable"). It emits a single `[MEDIUM] No TLS negotiation possible` finding with the failure reasons, and protocols show `n/a` when the server never answered. This usually means the port does not serve TLS, SNI is wrong, or a firewall, proxy or filter is in the way. If only the `crypto/tls` fallback got a certificate, a note says so and certificate findings are still reported.
 
 ## Testing against badssl.com
 
