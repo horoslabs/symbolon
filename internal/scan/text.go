@@ -8,7 +8,11 @@ import (
 
 // WriteText prints the report as short, mobile-friendly plain text.
 func (r *Report) WriteText(w io.Writer) {
-	fmt.Fprintf(w, "== %s ==\n", r.Target)
+	if r.IP != "" && r.IP != r.Host {
+		fmt.Fprintf(w, "== %s (%s) ==\n", r.Target, r.IP)
+	} else {
+		fmt.Fprintf(w, "== %s ==\n", r.Target)
+	}
 
 	fmt.Fprintln(w, "\nProtocols")
 	for _, p := range r.Protocols {

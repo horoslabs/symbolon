@@ -29,6 +29,8 @@ Scan flags:
   -html            HTML report (symbolon scan -html host > report.html)
   -list file       read targets from a file (one per line, # comments)
   -sni name        SNI to send (defaults to the host)
+  -all-ips         scan every resolved IP separately
+                   (default: first reachable IP only)
   -timeout 5s      per-connection timeout
   -c 4             targets in parallel
   -fail-on level   exit with code 2 if findings >= level
@@ -99,6 +101,7 @@ func cmdScan(args []string, out io.Writer) error {
 	asHTML := fs.Bool("html", false, "HTML report")
 	list := fs.String("list", "", "file with targets")
 	sni := fs.String("sni", "", "SNI to send")
+	allIPs := fs.Bool("all-ips", false, "scan every resolved IP separately")
 	timeout := fs.Duration("timeout", 5*time.Second, "per-connection timeout")
 	conc := fs.Int("c", 4, "targets in parallel")
 	failOn := fs.String("fail-on", "", "severity threshold for exit code 2")
@@ -127,8 +130,8 @@ func cmdScan(args []string, out io.Writer) error {
 	}
 
 	type item struct {
-		rep *scan.Report
-		err error
+		reps []*scan.Report
+		err  error
 	}
 	results := make([]item, len(targets))
 	sem := make(chan struct{}, *conc)
@@ -139,8 +142,18 @@ func cmdScan(args []string, out io.Writer) error {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			rep, err := scan.Scan(t, scan.Options{Timeout: *timeout, SNI: *sni})
-			results[i] = item{rep, err}
+			opt := scan.Options{Timeout: *timeout, SNI: *sni}
+			if *allIPs {
+				reps, err := scan.ScanAll(t, opt)
+				results[i] = item{reps, err}
+				return
+			}
+			rep, err := scan.Scan(t, opt)
+			if err != nil {
+				results[i] = item{nil, err}
+				return
+			}
+			results[i] = item{[]*scan.Report{rep}, nil}
 		}(i, t)
 	}
 	wg.Wait()
@@ -148,13 +161,16 @@ func cmdScan(args []string, out io.Writer) error {
 	var reports []*scan.Report
 	exceeded := false
 	for i, r := range results {
+		// With -all-ips some IPs may fail while others succeed.
 		if r.err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s: %v\n", targets[i], r.err)
-			continue
 		}
-		reports = append(reports, r.rep)
-		if *failOn != "" {
-			for _, f := range r.rep.Findings {
+		for _, rep := range r.reps {
+			reports = append(reports, rep)
+			if *failOn == "" {
+				continue
+			}
+			for _, f := range rep.Findings {
 				if scan.Rank(f.Severity) <= scan.Rank(*failOn) {
 					exceeded = true
 				}

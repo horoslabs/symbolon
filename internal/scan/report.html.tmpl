@@ -58,7 +58,7 @@ dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem;margin:0}dt
 <section class="target" id="t{{$i}}">
 <div class="head">
 <h2 class="mono">{{$r.Target}}</h2>
-<span class="muted">{{$r.Host}}:{{$r.Port}} · {{$r.ScannedAt.Format "2006-01-02 15:04:05 UTC"}}</span>
+<span class="muted">{{$r.Host}}:{{$r.Port}}{{with $r.IP}} ({{.}}){{end}} · {{$r.ScannedAt.Format "2006-01-02 15:04:05 UTC"}}</span>
 </div>
 
 <h3>Findings</h3>

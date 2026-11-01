@@ -3,10 +3,14 @@
 package scan
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +52,7 @@ type ProtocolResult struct {
 type Report struct {
 	Target    string           `json:"target"`
 	Host      string           `json:"host"`
+	IP        string           `json:"ip"`
 	Port      int              `json:"port"`
 	ScannedAt time.Time        `json:"scanned_at"`
 	Protocols []ProtocolResult `json:"protocols"`
@@ -93,25 +98,111 @@ func SplitTarget(target string) (string, int) {
 	return h, n
 }
 
-// Scan probes a target (host or host:port).
+// lookupIP resolves a hostname. Tests replace it to fake DNS.
+var lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
+	return net.DefaultResolver.LookupIP(ctx, "ip", host)
+}
+
+// resolve returns the target's IPs, IPv4 first. An IP literal is returned
+// as is.
+func resolve(host string, timeout time.Duration) ([]net.IP, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		return []net.IP{ip}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	ips, err := lookupIP(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("%s: no addresses found", host)
+	}
+	sort.SliceStable(ips, func(i, j int) bool {
+		return ips[i].To4() != nil && ips[j].To4() == nil
+	})
+	return ips, nil
+}
+
+func tcpCheck(addr string, timeout time.Duration) error {
+	c, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return err
+	}
+	return c.Close()
+}
+
+// Scan probes a target (host or host:port). The host is resolved once and
+// the first IP that accepts a TCP connection is pinned for every probe, so
+// multi-IP hosts give consistent results.
 func Scan(target string, opt Options) (*Report, error) {
+	opt = withDefaults(opt)
+	host, port := SplitTarget(target)
+	ips, err := resolve(host, opt.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	var fails []string
+	for _, ip := range ips {
+		addr := net.JoinHostPort(ip.String(), strconv.Itoa(port))
+		if err := tcpCheck(addr, opt.Timeout); err != nil {
+			fails = append(fails, ip.String()+": "+err.Error())
+			continue
+		}
+		return scanIP(target, host, ip.String(), port, opt), nil
+	}
+	return nil, fmt.Errorf("no reachable address for %s: %s", host, strings.Join(fails, "; "))
+}
+
+// ScanAll scans every resolved IP of the target separately. It returns the
+// reports for reachable IPs and an error listing the unreachable ones.
+func ScanAll(target string, opt Options) ([]*Report, error) {
+	opt = withDefaults(opt)
+	host, port := SplitTarget(target)
+	ips, err := resolve(host, opt.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	reports := make([]*Report, len(ips))
+	errs := make([]error, len(ips))
+	var wg sync.WaitGroup
+	for i, ip := range ips {
+		wg.Add(1)
+		go func(i int, ip string) {
+			defer wg.Done()
+			addr := net.JoinHostPort(ip, strconv.Itoa(port))
+			if err := tcpCheck(addr, opt.Timeout); err != nil {
+				errs[i] = fmt.Errorf("%s: %w", ip, err)
+				return
+			}
+			reports[i] = scanIP(target, host, ip, port, opt)
+		}(i, ip.String())
+	}
+	wg.Wait()
+	var out []*Report
+	for _, r := range reports {
+		if r != nil {
+			out = append(out, r)
+		}
+	}
+	return out, errors.Join(errs...)
+}
+
+func withDefaults(opt Options) Options {
 	if opt.Timeout <= 0 {
 		opt.Timeout = 5 * time.Second
 	}
-	host, port := SplitTarget(target)
+	return opt
+}
+
+// scanIP runs every probe against one pinned IP. SNI stays the hostname.
+func scanIP(target, host, ip string, port int, opt Options) *Report {
 	sni := opt.SNI
 	if sni == "" {
 		sni = host
 	}
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	addr := net.JoinHostPort(ip, strconv.Itoa(port))
 	p := &probe.Prober{Addr: addr, SNI: sni, Timeout: opt.Timeout}
-
-	// Connectivity check: if there's no TCP, there's no point continuing.
-	c, err := net.DialTimeout("tcp", addr, opt.Timeout)
-	if err != nil {
-		return nil, err
-	}
-	c.Close()
 
 	versions := []uint16{probe.VersionSSL30, probe.VersionTLS10, probe.VersionTLS11, probe.VersionTLS12, probe.VersionTLS13}
 	slots := make([]versionSlot, len(versions))
@@ -128,6 +219,7 @@ func Scan(target string, opt Options) (*Report, error) {
 	r := &Report{
 		Target:    target,
 		Host:      host,
+		IP:        ip,
 		Port:      port,
 		ScannedAt: time.Now().UTC(),
 	}
@@ -156,7 +248,7 @@ func Scan(target string, opt Options) (*Report, error) {
 		r.Notes = append(r.Notes, "could not obtain the certificate")
 	}
 	r.Findings = Evaluate(r)
-	return r, nil
+	return r
 }
 
 type versionSlot struct {
